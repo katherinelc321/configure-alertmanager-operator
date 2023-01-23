@@ -684,16 +684,6 @@ func createPagerdutyConfig(pagerdutyRoutingKey, clusterID string, clusterProxy s
 
 // TODO, Figure this out goalertURLlow vs goalertURLhigh
 func createGoalertConfig(goalertRoutingKey,  clusterID string, clusterProxy string) *alertmanager.WebhookConfig {
-	detailsMap := map[string]string{
-		"alert_name":   `{{ .CommonLabels.alertname }}`,
-		"link":         `{{ if .CommonAnnotations.runbook_url }}{{ .CommonAnnotations.runbook_url }}{{ else if .CommonAnnotations.link }}{{ .CommonAnnotations.link }}{{ else }}https://github.com/openshift/ops-sop/tree/master/v4/alerts/{{ .CommonLabels.alertname }}.md{{ end }}`,
-		"ocm_link":     fmt.Sprintf("https://console.redhat.com/openshift/details/%s", clusterID),
-		"num_firing":   `{{ .Alerts.Firing | len }}`,
-		"num_resolved": `{{ .Alerts.Resolved | len }}`,
-		"resolved":     `{{ template "pagerduty.default.instances" .Alerts.Resolved }}`,
-		"cluster_id":   clusterID,
-	}
-	clientURL := `{{ template "pagerduty.default.clientURL" . }}`
 
 	return &alertmanager.WebhookConfig{
 		NotifierConfig: alertmanager.NotifierConfig{VSendResolved: true},
