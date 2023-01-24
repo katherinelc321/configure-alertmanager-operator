@@ -88,6 +88,9 @@ const (
 	// anything going to Dead Man's Snitch (watchdog)
 	receiverWatchdog = "watchdog"
 
+	// GoAlert cluster heartbeat monitor
+	receiverHeartbeat = "heartbeat"
+
 	// anything going to Goalert
 	receiverGoalert = "goalert"
 
@@ -667,6 +670,35 @@ func createWatchdogReceivers(watchdogURL string, clusterProxy string) []*alertma
 		{
 			Name:           receiverWatchdog,
 			WebhookConfigs: []*alertmanager.WebhookConfig{snitchconfig},
+		},
+	}
+}
+
+// creatHeartbeatRoute creates an AlertManager Route for GoAlert Heartbeat in memory.
+func creatHeartbeatRoute() *alertmanager.Route {
+	return &alertmanager.Route{
+		Receiver:       receiverHeartbeat,
+		RepeatInterval: "5m",
+		Match:          map[string]string{"alertname": "Heartbeat"},
+	}
+}
+
+// createHeartbeatReceivers creates an AlertManager Receiver for Watchdog (Dead Man's Snitch) in memory.
+func createHeartbeatReceivers(heartbeatURL string, clusterProxy string) []*alertmanager.Receiver {
+	if heartbeatURL == "" {
+		return []*alertmanager.Receiver{}
+	}
+
+	heartbeatconfig := &alertmanager.WebhookConfig{
+		NotifierConfig: alertmanager.NotifierConfig{VSendResolved: true},
+		URL:            heartbeatURL,
+		HttpConfig:     createHttpConfig(clusterProxy),
+	}
+
+	return []*alertmanager.Receiver{
+		{
+			Name:           receiverHeartbeat,
+			WebhookConfigs: []*alertmanager.WebhookConfig{heartbeatconfig},
 		},
 	}
 }
