@@ -744,8 +744,7 @@ func createAlertManagerConfig(pagerdutyRoutingKey, goalertURLlow, goalertURLhigh
 			receivers = append(receivers, createGoalertReceivers(goalertURLhigh, clusterProxy)...)
 		}
 		if goalertURLheartbeat != "" {
-			// We will need to identify if the route is there and use it.  If not there, create it.  Removing for now
-			routes = append(routes, createWatchdogRoute())
+			routes = append(routes, creatHeartbeatRoute())
 			receivers = append(receivers, createWatchdogReceivers(goalertURLheartbeat, clusterProxy)...)
 		}
 	}
