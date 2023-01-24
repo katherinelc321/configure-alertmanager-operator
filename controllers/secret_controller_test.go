@@ -485,10 +485,12 @@ func Test_parseSecrets(t *testing.T) {
 
 	pdKey := "asdfjkl123"
 	dmsURL := "https://hjklasdf09876"
+	goalertKey := "shtsrjnysdfwa"
 
 	createNamespace(reconciler, t)
 	createSecret(reconciler, secretNamePD, secretKeyPD, pdKey)
 	createSecret(reconciler, secretNameDMS, secretKeyDMS, dmsURL)
+	createSecret(reconciler, secretNameGoalert, secretKeyGoalert, goalertKey)
 
 	secretList := &corev1.SecretList{}
 	err := reconciler.Client.List(context.TODO(), secretList, &client.ListOptions{})
@@ -497,10 +499,11 @@ func Test_parseSecrets(t *testing.T) {
 	}
 
 	request := createReconcileRequest(reconciler, secretNamePD)
-	pagerdutyRoutingKey, watchdogURL := reconciler.parseSecrets(reqLogger, secretList, request.Namespace, true)
+	pagerdutyRoutingKey, watchdogURL, goalertRoutingKey := reconciler.parseSecrets(reqLogger, secretList, request.Namespace, true)
 
 	assertEquals(t, pdKey, pagerdutyRoutingKey, "Expected PagerDuty routing keys to match")
 	assertEquals(t, dmsURL, watchdogURL, "Expected DMS URLs to match")
+	assertEquals(t, goalertKey, goalertRoutingKey, "Expected Goalert keys to match")
 }
 
 // Test_parseSecrets tests the parseSecrets function when the DMS secret does not exist
@@ -523,10 +526,11 @@ func Test_parseSecrets_MissingDMS(t *testing.T) {
 	}
 
 	request := createReconcileRequest(reconciler, secretNamePD)
-	pagerdutyRoutingKey, watchdogURL := reconciler.parseSecrets(reqLogger, secretList, request.Namespace, true)
+	pagerdutyRoutingKey, watchdogURL, goalertRoutingKey := reconciler.parseSecrets(reqLogger, secretList, request.Namespace, true)
 
 	assertEquals(t, pdKey, pagerdutyRoutingKey, "Expected PagerDuty routing keys to match")
 	assertEquals(t, "", watchdogURL, "Expected DMS URLs to match")
+	assertEquals(t, "", goalertRoutingKey, "Expected Goalert keys to match")
 }
 
 // Tests the parseSecrets function when the PD secret does not exist
@@ -549,10 +553,11 @@ func Test_parseSecrets_MissingPagerDuty(t *testing.T) {
 	}
 
 	request := createReconcileRequest(reconciler, secretNamePD)
-	pagerdutyRoutingKey, watchdogURL := reconciler.parseSecrets(reqLogger, secretList, request.Namespace, true)
+	pagerdutyRoutingKey, watchdogURL, goalertRoutingKey := reconciler.parseSecrets(reqLogger, secretList, request.Namespace, true)
 
 	assertEquals(t, "", pagerdutyRoutingKey, "Expected PagerDuty routing keys to match")
 	assertEquals(t, dmsURL, watchdogURL, "Expected DMS URLs to match")
+	assertEquals(t, "", goalertRoutingKey, "Expected Goalert keys to match")
 }
 
 // Test_parseConfigMaps tests the parseConfigMaps function under various circumstances
@@ -806,8 +811,9 @@ func Test_createAlertManagerConfig_WithoutKey_WithoutURL(t *testing.T) {
 	pdKey := ""
 	wdURL := ""
 	oaURL := ""
+	gaKey := ""
 
-	config := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
+	config := createAlertManagerConfig(pdKey, gaKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
 
 	// verify static things
 	assertEquals(t, "5m", config.Global.ResolveTimeout, "Global.ResolveTimeout")
@@ -828,8 +834,9 @@ func Test_createAlertManagerConfig_WithKey_WithoutURL(t *testing.T) {
 	pdKey := "poiuqwer78902345"
 	wdURL := ""
 	oaURL := ""
+	gaKey := ""
 
-	config := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
+	config := createAlertManagerConfig(pdKey, gaKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
 
 	// verify static things
 	assertEquals(t, "5m", config.Global.ResolveTimeout, "Global.ResolveTimeout")
@@ -853,7 +860,8 @@ func Test_createAlertManagerConfig_WithKey_WithWDURL_WithOAURL(t *testing.T) {
 	pdKey := "poiuqwer78902345"
 	wdURL := "http://theinterwebs"
 	oaURL := "http://dummy-oa-url"
-	config := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
+	gaKey := "vstbdhsrtyceaf"
+	config := createAlertManagerConfig(pdKey, gaKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
 
 	// verify static things
 	assertEquals(t, "5m", config.Global.ResolveTimeout, "Global.ResolveTimeout")
@@ -883,8 +891,9 @@ func Test_createAlertManagerConfig_WithoutKey_WithoutOA_WithWDURL(t *testing.T) 
 	pdKey := ""
 	wdURL := "http://theinterwebs"
 	oaURL := ""
+	gaKey := ""
 
-	config := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
+	config := createAlertManagerConfig(pdKey, gaKey, wdURL, oaURL, exampleClusterId, exampleProxy, exampleManagedNamespaces)
 
 	// verify static things
 	assertEquals(t, "5m", config.Global.ResolveTimeout, "Global.ResolveTimeout")
@@ -982,9 +991,10 @@ func createReconcileRequest(reconciler *SecretReconciler, secretname string) *re
 func Test_createPagerdutySecret_Create(t *testing.T) {
 	pdKey := "asdaidsgadfi9853"
 	wdURL := "http://theinterwebs/asdf"
+	gaKey := ""
 	oaURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", ocmAgentService, ocmAgentNamespace, 9999, ocmAgentWebhookPath)
 
-	configExpected := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
+	configExpected := createAlertManagerConfig(pdKey, gaKey, wdURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
 
 	verifyInhibitRules(t, configExpected.InhibitRules)
 
@@ -1018,12 +1028,13 @@ func Test_createPagerdutySecret_Create(t *testing.T) {
 func Test_createPagerdutySecret_Update(t *testing.T) {
 	pdKey := "asdaidsgadfi9853"
 	wdURL := "http://theinterwebs/asdf"
+	gaKey := ""
 	oaURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", ocmAgentService, ocmAgentNamespace, 9999, ocmAgentWebhookPath)
 
 	var ret reconcile.Result
 	var err error
 
-	configExpected := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
+	configExpected := createAlertManagerConfig(pdKey, gaKey, wdURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
 
 	verifyInhibitRules(t, configExpected.InhibitRules)
 
@@ -1194,7 +1205,7 @@ func Test_SecretReconciler(t *testing.T) {
 
 		// Create the secrets for this specific test.
 		if tt.amExists {
-			writeAlertManagerConfig(reconciler, reqLogger, createAlertManagerConfig("", "", "", "", "", defaultNamespaces))
+			writeAlertManagerConfig(reconciler, reqLogger, createAlertManagerConfig("", " ", "", "", "", "", defaultNamespaces))
 		}
 		if tt.dmsExists {
 			wdURL = "https://hjklasdf09876"
@@ -1211,7 +1222,7 @@ func Test_SecretReconciler(t *testing.T) {
 			oaURL = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", ocmAgentService, ocmAgentNamespace, 9999, ocmAgentWebhookPath)
 			createConfigMap(reconciler, cmNameOcmAgent, cmKeyOCMAgent, oaURL)
 		}
-		configExpected := createAlertManagerConfig(pdKey, wdURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
+		configExpected := createAlertManagerConfig(pdKey, " ", wdURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
 
 		verifyInhibitRules(t, configExpected.InhibitRules)
 
@@ -1282,7 +1293,7 @@ func Test_SecretReconciler_Readiness(t *testing.T) {
 		createClusterVersion(reconciler)
 		createClusterProxy(reconciler)
 
-		writeAlertManagerConfig(reconciler, reqLogger, createAlertManagerConfig("", "", "", "", "", defaultNamespaces))
+		writeAlertManagerConfig(reconciler, reqLogger, createAlertManagerConfig("", " ", "", "", "", "", defaultNamespaces))
 
 		pdKey := "asdfjkl123"
 		dmsURL := "https://hjklasdf09876"
@@ -1306,7 +1317,7 @@ func Test_SecretReconciler_Readiness(t *testing.T) {
 		} else {
 			oaURL = ""
 		}
-		configExpected := createAlertManagerConfig(pdKey, dmsURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
+		configExpected := createAlertManagerConfig(pdKey, " ", dmsURL, oaURL, exampleClusterId, exampleProxy, defaultNamespaces)
 
 		verifyInhibitRules(t, configExpected.InhibitRules)
 
