@@ -578,16 +578,6 @@ func createPagerdutyConfig(pagerdutyRoutingKey, clusterID string, clusterProxy s
 	}
 }
 
-// TODO, Figure this out goalertURLlow vs goalertURLhigh
-func createGoalertConfig(goalertRoutingKey, clusterProxy string) *alertmanager.WebhookConfig {
-
-	return &alertmanager.WebhookConfig{
-		NotifierConfig: alertmanager.NotifierConfig{VSendResolved: true},
-		URL:            goalertRoutingKey,
-		HttpConfig:     createHttpConfig(clusterProxy),
-	}
-}
-
 // createPagerdutyReceivers creates an AlertManager Receiver for PagerDuty in memory.
 func createPagerdutyReceivers(pagerdutyRoutingKey, clusterID string, clusterProxy string) []*alertmanager.Receiver {
 	if pagerdutyRoutingKey == "" {
@@ -629,18 +619,49 @@ func createPagerdutyReceivers(pagerdutyRoutingKey, clusterID string, clusterProx
 }
 
 // TODO, Figure this out goalertURLlow vs goalertURLhigh
+func createGoalertConfig(goalertRoutingKey, clusterProxy string) *alertmanager.WebhookConfig {
+
+	return &alertmanager.WebhookConfig{
+		NotifierConfig: alertmanager.NotifierConfig{VSendResolved: true},
+		URL:            goalertRoutingKey,
+		HttpConfig:     createHttpConfig(clusterProxy),
+	}
+}
+
+// TODO, Figure this out goalertURLlow vs goalertURLhigh
 // createGoalertReceivers creates an AlertManager Receiver for Goalert in memory.
-func createGoalertReceivers(goalertRoutingKey, clusterProxy string) []*alertmanager.Receiver {
-	if goalertRoutingKey == "" {
+func createGoalertReceivers(goalertURLlow, goalertURLhigh, clusterProxy string) []*alertmanager.Receiver {
+	if goalertURLlow == "" || goalertURLhigh == "" {
 		return []*alertmanager.Receiver{}
 	}
 
 	receivers := []*alertmanager.Receiver{
 		{
 			Name:           receiverGoalert,
-			WebhookConfigs: []*alertmanager.WebhookConfig{createGoalertConfig(goalertRoutingKey, clusterProxy)},
+			WebhookConfigs: []*alertmanager.WebhookConfig{createGoalertConfig(goalertURLlow, clusterProxy)},
 		},
 	}
+
+	// make-it-warning
+	goalertconfig := createGoalertConfig(goalertURLlow, clusterProxy)
+	receivers = append(receivers, &alertmanager.Receiver{
+		Name:             receiverMakeItWarning,
+		WebhookConfigs: []*alertmanager.WebhookConfig{goalertconfig},
+	})
+
+	// make-it-error
+	goalerthighconfig := createGoalertConfig(goalertURLhigh, clusterProxy)
+	receivers = append(receivers, &alertmanager.Receiver{
+		Name:             receiverMakeItError,
+		WebhookConfigs: []*alertmanager.WebhookConfig{goalerthighconfig},
+	})
+
+	// make-it-critical
+	goalertcriticalconfig := createGoalertConfig(goalertURLhigh, clusterProxy)
+	receivers = append(receivers, &alertmanager.Receiver{
+		Name:             receiverMakeItCritical,
+		WebhookConfigs: []*alertmanager.WebhookConfig{goalertcriticalconfig},
+	})
 
 	return receivers
 }
