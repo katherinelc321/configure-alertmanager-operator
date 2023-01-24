@@ -48,6 +48,8 @@ const (
 
 	secretKeyGoalertHigh = "GOALERT_KEY_HIGH"
 
+	secretKeyGoalertHeartbeat = "GOALERT_HEARTBEAT"
+
 	secretKeyPD = "PAGERDUTY_KEY" // #nosec G101
 
 	secretKeyDMS = "SNITCH_URL"
@@ -188,7 +190,7 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 		reqLogger.Error(err, "Unable to list configMaps")
 	}
 
-	pagerdutyRoutingKey, watchdogURL, goalertURLlow, goalertURLhigh := r.parseSecrets(reqLogger, secretList, request.Namespace, clusterReady)
+	pagerdutyRoutingKey, watchdogURL, goalertURLlow, goalertURLhigh, goalertURLheartbeat := r.parseSecrets(reqLogger, secretList, request.Namespace, clusterReady)
 	osdNamespaces := r.parseConfigMaps(reqLogger, cmList, request.Namespace)
 	reqLogger.Info("DEBUG: Adding PagerDuty routes for the following namespaces", "Namespaces", osdNamespaces)
 
@@ -204,7 +206,7 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 	if err != nil {
 		reqLogger.Error(err, "Error reading cluster id.")
 	}
-	alertmanagerconfig := createAlertManagerConfig(pagerdutyRoutingKey, goalertURLlow, goalertURLhigh, watchdogURL, ocmAgentURL, clusterID, clusterProxy, osdNamespaces)
+	alertmanagerconfig := createAlertManagerConfig(pagerdutyRoutingKey, goalertURLlow, goalertURLhigh, goalertURLheartbeat, watchdogURL, ocmAgentURL, clusterID, clusterProxy, osdNamespaces)
 
 	// write the alertmanager Config
 	writeAlertManagerConfig(r, reqLogger, alertmanagerconfig)
@@ -426,6 +428,7 @@ func createPagerdutyRoute(namespaceList []string) *alertmanager.Route {
 
 // createGoalertRoute creates an AlertManager Route for GoAlert in memory.
 func createGoalertRoute(namespaceList []string) *alertmanager.Route {
+
 	// order matters.
 	// these are sub-routes.  if any matches it will not continue processing.
 	// 1. route anything we consider critical to "make-it-critical"
@@ -443,49 +446,6 @@ func createGoalertRoute(namespaceList []string) *alertmanager.Route {
 		{Receiver: receiverMakeItCritical, MatchRE: map[string]string{"name": "^.+-master-[123]$"}, Match: map[string]string{"alertname": "MachineWithoutValidNode", "namespace": "openshift-machine-api"}},
 		{Receiver: receiverMakeItCritical, MatchRE: map[string]string{"name": "^.+-master-[123]$"}, Match: map[string]string{"alertname": "MachineWithNoRunningPhase", "namespace": "openshift-machine-api"}},
 
-		// Silence anything intended for OCM Agent
-		// https://issues.redhat.com/browse/SDE-1315
-		{Receiver: receiverNull, Match: map[string]string{managedNotificationLabel: "true"}},
-		// https://issues.redhat.com/browse/OSD-1966
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "KubeQuotaExceeded"}},
-		// This will be renamed in release 4.5
-		// https://issues.redhat.com/browse/OSD-4017
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "KubeQuotaFullyUsed"}},
-		// TODO: Remove CPUThrottlingHigh entry after all OSD clusters upgrade to 4.6 and above version
-		// https://issues.redhat.com/browse/OSD-6351 based on https://bugzilla.redhat.com/show_bug.cgi?id=1843346
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "CPUThrottlingHigh"}},
-		// https://issues.redhat.com/browse/OSD-3010
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "NodeFilesystemSpaceFillingUp", "severity": "warning"}},
-		// https://issues.redhat.com/browse/OSD-2611
-		{Receiver: receiverNull, Match: map[string]string{"namespace": "openshift-customer-monitoring"}},
-		// https://issues.redhat.com/browse/OSD-3569
-		{Receiver: receiverNull, Match: map[string]string{"namespace": "openshift-operators"}},
-		// https://issues.redhat.com/browse/OSD-8337
-		{Receiver: receiverNull, Match: map[string]string{"namespace": "openshift-storage"}},
-		// https://issues.redhat.com/browse/OSD-8702
-		{Receiver: receiverNull, Match: map[string]string{"namespace": "openshift-compliance"}},
-		// https://issues.redhat.com/browse/OSD-8349
-		{Receiver: receiverNull, Match: map[string]string{"exported_namespace": "openshift-storage"}},
-		// https://issues.redhat.com/browse/OSD-6505
-		{Receiver: receiverNull, Match: map[string]string{"exported_namespace": "openshift-operators"}},
-		// https://issues.redhat.com/browse/OSD-7653
-		{Receiver: receiverNull, Match: map[string]string{"namespace": "openshift-operators-redhat"}},
-		// https://issues.redhat.com/browse/OSD-3629
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "CustomResourceDetected"}},
-		// https://issues.redhat.com/browse/OSD-3629
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ImagePruningDisabled"}},
-		// https://issues.redhat.com/browse/OSD-3794
-		{Receiver: receiverNull, Match: map[string]string{"severity": "info"}},
-		// https://issues.redhat.com/browse/OSD-8665
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "KubePersistentVolumeFillingUp", "severity": "warning", "namespace": "openshift-logging"}},
-		// https://issues.redhat.com/browse/OSD-3973
-		{Receiver: receiverNull, MatchRE: map[string]string{"namespace": alertmanager.PDRegexLP}, Match: map[string]string{"alertname": "PodDisruptionBudgetLimit"}},
-		// https://issues.redhat.com/browse/OSD-3973
-		{Receiver: receiverNull, MatchRE: map[string]string{"namespace": alertmanager.PDRegexLP}, Match: map[string]string{"alertname": "PodDisruptionBudgetAtLimit"}},
-		// https://issues.redhat.com/browse/OSD-4373
-		{Receiver: receiverNull, MatchRE: map[string]string{"namespace": alertmanager.PDRegexLP}, Match: map[string]string{"alertname": "TargetDown"}},
-		// https://issues.redhat.com/browse/OSD-5544
-		{Receiver: receiverNull, MatchRE: map[string]string{"job_name": "^elasticsearch.*"}, Match: map[string]string{"alertname": "KubeJobFailed", "namespace": "openshift-logging"}},
 		// https://issues.redhat.com/browse/OSD-11273 - silence all elasticsearch alerts so we can handle only the ones that have extended logging support
 		// the list of alerts is pulled via
 		// ```
@@ -495,53 +455,6 @@ func createGoalertRoute(namespaceList []string) *alertmanager.Route {
 		// ```
 		// pass all of the alerts that are SRE related to PD
 		{Receiver: receiverGoalert, MatchRE: map[string]string{"alertname": "^.*SRE$"}, Match: map[string]string{"namespace": "openshift-logging"}},
-		// fluentd alerts
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "FluentDHighErrorRate", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "FluentDVeryHighErrorRate", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "FluentdNodeDown", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "FluentdNodeDown", "prometheus": "openshift-monitoring/k8s"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "FluentdQueueLengthIncreasing", "namespace": "openshift-logging"}}, //https://issues.redhat.com/browse/OSD-8403, https://issues.redhat.com/browse/OSD-8576
-		// elasticsearch alerts
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "AggregatedLoggingSystemCPUHigh", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchClusterNotHealthy", "namespace": "openshift-logging"}},   // this has happened last week
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchDiskSpaceRunningLow", "namespace": "openshift-logging"}}, // this has happened last week
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchHighFileDescriptorUsage", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchJVMHeapUseHigh", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchNodeDiskWatermarkReached", "namespace": "openshift-logging"}}, // this has happened last week
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchOperatorCSVNotSuccessful", "namespace": "openshift-logging"}}, // this has happened last week
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchProcessCPUHigh", "namespace": "openshift-logging"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ElasticsearchWriteRequestsRejectionJumps", "namespace": "openshift-logging"}},
-		// END of https://issues.redhat.com/browse/OSD-11273
-		// Suppress the alerts and use HAProxyReloadFailSRE instead (openshift/managed-cluster-config#600)
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "HAProxyReloadFail", "severity": "critical"}},
-		// https://issues.redhat.com/browse/OHSS-2163
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "PrometheusRuleFailures"}},
-		// https://issues.redhat.com/browse/OSD-6215
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ClusterOperatorDegraded", "name": "authentication", "reason": "IdentityProviderConfig_Error"}},
-		// https://issues.redhat.com/browse/OSD-6363
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ClusterOperatorDegraded", "name": "authentication", "reason": "OAuthServerConfigObservation_Error"}},
-
-		//https://issues.redhat.com/browse/OSD-8320
-		// Sometimes only CLusterOperatorDown is firing, meaning the suppression set below in this file does not work
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ClusterOperatorDown", "name": "authentication", "reason": "IdentityProviderConfig_Error"}},
-		//https://issues.redhat.com/browse/OSD-8320
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ClusterOperatorDown", "name": "authentication", "reason": "OAuthServerConfigObservation_Error"}},
-
-		// https://issues.redhat.com/browse/OSD-6327
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "CannotRetrieveUpdates"}},
-
-		//https://issues.redhat.com/browse/OSD-6559
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "PrometheusNotIngestingSamples", "namespace": "openshift-user-workload-monitoring"}},
-
-		//https://issues.redhat.com/browse/OSD-7671
-		// might also be removed by https://issues.redhat.com/browse/OSD-11273
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "FluentdQueueLengthBurst", "namespace": "openshift-logging", "severity": "warning"}},
-
-		// https://issues.redhat.com/browse/OSD-9061
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "ClusterAutoscalerUnschedulablePods", "namespace": "openshift-machine-api"}},
-
-		// https://issues.redhat.com/browse/OSD-9062
-		{Receiver: receiverNull, Match: map[string]string{"severity": "alert"}},
 
 		// https://issues.redhat.com/browse/OSD-1922
 		{Receiver: receiverMakeItWarning, Match: map[string]string{"alertname": "KubeAPILatencyHigh", "severity": "critical"}},
@@ -563,16 +476,6 @@ func createGoalertRoute(namespaceList []string) *alertmanager.Route {
 		// https://issues.redhat.com/browse/OSD-8006
 		{Receiver: receiverGoalert, Match: map[string]string{"alertname": "KubeAPIErrorBudgetBurn", "prometheus": "openshift-monitoring/k8s"}},
 
-		// https://issues.redhat.com/browse/OSD-6821
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "PrometheusBadConfig", "namespace": "openshift-user-workload-monitoring"}},
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "PrometheusDuplicateTimestamps", "namespace": "openshift-user-workload-monitoring"}},
-
-		// https://issues.redhat.com/browse/OSD-9426
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "PrometheusTargetSyncFailure", "namespace": "openshift-user-workload-monitoring"}},
-
-		// https://issues.redhat.com/browse/OSD-11478
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "PrometheusOperatorRejectedResources", "namespace": "openshift-user-workload-monitoring"}},
-
 		// https://issues.redhat.com/browse/OSD-8983
 		{Receiver: receiverMakeItWarning, Match: map[string]string{"alertname": "etcdGRPCRequestsSlow", "namespace": "openshift-etcd"}},
 
@@ -585,16 +488,6 @@ func createGoalertRoute(namespaceList []string) *alertmanager.Route {
 		// https://issues.redhat.com/browse/DVO-54
 		{Receiver: receiverMakeItWarning, Match: map[string]string{"severity": "critical", "namespace": "openshift-deployment-validation-operator"}},
 
-		// https://issues.redhat.com/browse/OSD-14071
-		{Receiver: receiverNull, Match: map[string]string{"alertname": "MultipleDefaultStorageClasses", "namespace": "openshift-cluster-storage-operator"}},
-	}
-
-	// Silence insights in FedRAMP until its made available in the environment
-	// https://issues.redhat.com/browse/OSD-13685
-	if config.IsFedramp() {
-		goalertSubroutes = append(goalertSubroutes,
-			&alertmanager.Route{Receiver: receiverNull, Match: map[string]string{"alertname": "ClusterOperatorDown", "name": "insights"}},
-		)
 	}
 
 	for _, namespace := range namespaceList {
@@ -734,7 +627,7 @@ func createPagerdutyReceivers(pagerdutyRoutingKey, clusterID string, clusterProx
 
 // TODO, Figure this out goalertURLlow vs goalertURLhigh
 // createGoalertReceivers creates an AlertManager Receiver for Goalert in memory.
-func createGoalertReceivers(goalertRoutingKey, clusterID, clusterProxy string) []*alertmanager.Receiver {
+func createGoalertReceivers(goalertRoutingKey, clusterProxy string) []*alertmanager.Receiver {
 	if goalertRoutingKey == "" {
 		return []*alertmanager.Receiver{}
 	}
@@ -790,7 +683,7 @@ func createHttpConfig(clusterProxy string) alertmanager.HttpConfig {
 }
 
 // createAlertManagerConfig creates an AlertManager Config in memory based on the provided input parameters.
-func createAlertManagerConfig(pagerdutyRoutingKey, goalertURLlow, goalertURLhigh, watchdogURL, ocmAgentURL, clusterID string, clusterProxy string, namespaceList []string) *alertmanager.Config {
+func createAlertManagerConfig(pagerdutyRoutingKey, goalertURLlow, goalertURLhigh, goalertURLheartbeat, watchdogURL, ocmAgentURL, clusterID string, clusterProxy string, namespaceList []string) *alertmanager.Config {
 	routes := []*alertmanager.Route{}
 	receivers := []*alertmanager.Receiver{}
 
@@ -812,11 +705,16 @@ func createAlertManagerConfig(pagerdutyRoutingKey, goalertURLlow, goalertURLhigh
 	if config.IsFedramp() {
 		if goalertURLlow != "" {
 			routes = append(routes, createGoalertRoute(namespaceList))
-			receivers = append(receivers, createGoalertReceivers(goalertURLlow, clusterID, clusterProxy)...)
+			receivers = append(receivers, createGoalertReceivers(goalertURLlow, clusterProxy)...)
 		}
 		if goalertURLhigh != "" {
 			routes = append(routes, createGoalertRoute(namespaceList))
-			receivers = append(receivers, createGoalertReceivers(goalertURLhigh, clusterID, clusterProxy)...)
+			receivers = append(receivers, createGoalertReceivers(goalertURLhigh, clusterProxy)...)
+		}
+		if goalertURLheartbeat != "" {
+			// We will need to identify if the route is there and use it.  If not there, create it.  Removing for now
+			// routes = append(routes, createWatchdogRoute())
+			receivers = append(receivers, createWatchdogReceivers(goalertURLheartbeat, clusterProxy)...)
 		}
 	}
 
@@ -1026,15 +924,16 @@ func (r *SecretReconciler) readOCMAgentServiceURLFromConfig(reqLogger logr.Logge
 	return serviceURL
 }
 
-func (r *SecretReconciler) parseSecrets(reqLogger logr.Logger, secretList *corev1.SecretList, namespace string, clusterReady bool) (pagerdutyRoutingKey string, watchdogURL string, goalertURLlow string, goalertURLhigh string) {
+func (r *SecretReconciler) parseSecrets(reqLogger logr.Logger, secretList *corev1.SecretList, namespace string, clusterReady bool) (pagerdutyRoutingKey string, watchdogURL string, goalertURLlow string, goalertURLhigh string, goalertURLheartbeat string) {
 	// Check for the presence of specific secrets.
 	goalertSecretExists := secretInList(reqLogger, secretNameGoalert, secretList)
 	pagerDutySecretExists := secretInList(reqLogger, secretNamePD, secretList)
 	snitchSecretExists := secretInList(reqLogger, secretNameDMS, secretList)
 
-	// do the work! collect secret info for PD and DMS
+	// do the work! collect secret info for PD, DMS, and GoAlert
 	goalertURLlow = ""
 	goalertURLhigh = ""
+	goalertURLheartbeat = ""
 	pagerdutyRoutingKey = ""
 	watchdogURL = ""
 
@@ -1044,6 +943,7 @@ func (r *SecretReconciler) parseSecrets(reqLogger logr.Logger, secretList *corev
 			reqLogger.Info("INFO: Cluster is ready; configuring Goalert")
 			goalertURLlow = readSecretKey(r, secretNameGoalert, namespace, secretKeyGoalertLow)
 			goalertURLhigh = readSecretKey(r, secretNameGoalert, namespace, secretKeyGoalertHigh)
+			goalertURLheartbeat = readSecretKey(r, secretNameGoalert, namespace, secretKeyGoalertHeartbeat)
 		} else {
 			reqLogger.Info("INFO: Cluster is not ready; skipping Goalert configuration")
 		}
@@ -1074,7 +974,7 @@ func (r *SecretReconciler) parseSecrets(reqLogger logr.Logger, secretList *corev
 		reqLogger.Info("INFO: Dead Man's Snitch secret does not exist")
 	}
 
-	return pagerdutyRoutingKey, watchdogURL, goalertURLlow, goalertURLhigh
+	return pagerdutyRoutingKey, watchdogURL, goalertURLlow, goalertURLhigh, goalertURLheartbeat
 }
 
 func (r *SecretReconciler) getClusterID() (string, error) {
