@@ -683,7 +683,7 @@ func createPagerdutyConfig(pagerdutyRoutingKey, clusterID string, clusterProxy s
 }
 
 // TODO, Figure this out goalertURLlow vs goalertURLhigh
-func createGoalertConfig(goalertRoutingKey,  clusterID string, clusterProxy string) *alertmanager.WebhookConfig {
+func createGoalertConfig(goalertRoutingKey, clusterProxy string) *alertmanager.WebhookConfig {
 
 	return &alertmanager.WebhookConfig{
 		NotifierConfig: alertmanager.NotifierConfig{VSendResolved: true},
